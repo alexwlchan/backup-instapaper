@@ -21,8 +21,7 @@ def _bookmark_to_dict(bookmark):
 
     """
     data = {}
-    for field in ['bookmark_id', 'description', 'title', 'url', 'title',
-                  'progress', 'progress_timestamp', 'starred']:
+    for field in ['bookmark_id', 'title', 'URL', 'description', 'starred']:
         data[field] = getattr(bookmark, field)
     return data
 
@@ -44,10 +43,12 @@ def fetch_all_bookmarks(api):
     folders['archive'] = 'Archive'
     folders['unread'] = 'Unread'
 
-    bookmarks = {}
-    for folder_id, folder_title in folders.items():
-        bookmarks[folder_title] = _fetch_bookmarks_for_folder(
-            api=api, folder_id=folder_id)
+    bookmarks = []
+    for f_id, f_title in folders.items():
+        new_bookmarks = _fetch_bookmarks_for_folder(api=api, folder_id=f_id)
+        for b in new_bookmarks:
+            b['folder'] = f_title
+            bookmarks.append(b)
 
     return bookmarks
 
