@@ -1,7 +1,11 @@
+#!/usr/bin/env python
 # -*- encoding: utf-8
+"""A script for backing up your Instapaper bookmarks.  Run with ``--help``
+to get a usage message.
+
 """
-This script backs up my Instapaper bookmarks.
-"""
+
+from __future__ import unicode_literals
 
 import argparse
 import json
@@ -10,55 +14,70 @@ from instapaper import Instapaper
 import keyring
 
 
-def dump_attributes(obj):
-    return {attr: getattr(obj, attr)
-            for attr in dir(obj)
-            if not attr.startswith('_') and not callable(getattr(obj, attr))}
+def _bookmark_to_dict(bookmark):
+    """Turns a bookmark into a dictionary.
 
-
-class KeychainError(Exception):
-    pass
-
-
-def load_credentials(service, keys):
-    """Load credentials from the system keychain.
-
-    :param service: The name of the service. e.g. 'instapaper'
-    :param keys: A list of credentials to look up.
-        e.g. ['username', 'password']
+    :param bookmark: An ``instapaper.Bookmark`` instance.
 
     """
-    if isinstance(keys, str):
-        keys = [keys]
-
-    credentials = {key: keyring.get_password(service, key) for key in keys}
-    for key, value in credentials.items():
-        if value is None:
-            raise KeychainError(
-                'Empty keychain item: (%r, %r)' % (service, key))
-    return credentials
+    data = {}
+    for field in ['bookmark_id', 'description', 'title', 'url', 'title',
+                  'progress', 'progress_timestamp', 'starred']:
+        data[field] = getattr(bookmark, field)
+    return data
 
 
-def fetch_all_bookmarks(api, folder_id):
-    """Retrieves all the bookmarks for an Instapaper folder, ready for
-    JSON serialisation."""
+def fetch_all_bookmarks(api):
+    """Fetches all the bookmarks for an account.
+
+    Returns a dict of folder names and bookmarks.
+
+    :param api: An ``Instapaper`` instance logged in to the Instapaper API.
+
+    """
+    # We have to retrieve the bookmarks from each folder in an account
+    # individually, so start by getting a list of folders.
+    folders = {f['folder_id']: f['title'] for f in api.folders()}
+
+    # Unread and Archive aren't included in the ``folders()`` method,
+    # but we still want to back them up.
+    folders['archive'] = 'Archive'
+    folders['unread'] = 'Unread'
+
+    bookmarks = {}
+    for folder_id, folder_title in folders.items():
+        bookmarks[folder_title] = _fetch_bookmarks_for_folder(
+            api=api, folder_id=folder_id)
+
+    return bookmarks
+
+
+def _fetch_bookmarks_for_folder(api, folder_id):
+    """Fetches all the bookmarks for a given folder.
+
+    :param api: An ``Instapaper`` instance logged in to the Instapaper API.
+    :param folder_id: The folder ID, as returned by the ``folders`` method
+        from the Instapaper API, or "unread" or "archive".
+
+    """
     bookmarks = []
     while True:
+        # Fetch the next batch of bookmarks from the API.  500 is the most
+        # bookmarks we can fetch at once -- this lets us minimise API calls.
         new_bookmarks = api.bookmarks(
             folder=folder_id,
             have=','.join(b['bookmark_id'] for b in bookmarks),
             limit=500)
-        if not new_bookmarks:
-            break
-        new_bookmarks = [dump_attributes(b) for b in new_bookmarks]
-        if all(b in bookmarks for b in new_bookmarks):
-            break
+
+        # Add any new bookmarks.  Because we pass the ``have`` parameter,
+        # the API guarantees that we aren't receiving any duplicates.
+        new_bookmarks = [_bookmark_to_dict(b) for b in new_bookmarks]
         bookmarks.extend(new_bookmarks)
+
+        # The next API call will be empty if there aren't any bookmarks left,
+        # but checking here can save us an unnecessary API call.
         if len(new_bookmarks) < 500:
             break
-
-    for b in bookmarks:
-        del b['parent']
 
     return bookmarks
 
@@ -139,22 +158,8 @@ def main():
         password=config['password'],
         oauthkey=config['oauthkey'],
         oauthsec=config['oauthsec'])
-
-    data = {}
-
-    folders = api.folders()
-    data['folders'] = folders
-
-    data['bookmarks'] = {}
-    for folder_id in ('unread', 'archive'):
-        data['bookmarks'][folder_id] = fetch_all_bookmarks(
-            api=api, folder_id=None)
-
-    for folder in folders:
-        bookmarks = fetch_all_bookmarks(api=api, folder_id=folder['folder_id'])
-        data['bookmarks'][folder['title']] = bookmarks
-
-    json.dump(data, open(path, 'w'), indent=2, sort_keys=True)
+    bookmarks = fetch_all_bookmarks(api)
+    json.dump(bookmarks, open(config['output'], 'w'), sort_keys=True)
 
 
 if __name__ == '__main__':
