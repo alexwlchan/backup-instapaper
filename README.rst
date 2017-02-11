@@ -31,7 +31,7 @@ flags:
 
 .. code-block:: console
 
-   $ python backup_goodreads.py --username=USERNAME --password=PASSWORD --oauthkey=OAUTHKEY --oauthsec=OAUTHSEC
+   $ python backup_instapaper.py --username=USERNAME --password=PASSWORD --oauthkey=OAUTHKEY --oauthsec=OAUTHSEC
 
 This will write your bookmarks to ``instapaper_bookmarks.json``.
 
