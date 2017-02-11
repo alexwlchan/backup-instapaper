@@ -3,6 +3,7 @@
 This script backs up my Instapaper bookmarks.
 """
 
+import argparse
 import json
 
 from instapaper import Instapaper
@@ -62,30 +63,99 @@ def fetch_all_bookmarks(api, folder_id):
     return bookmarks
 
 
-def backup_instapaper(path):
-    credentials = load_credentials(
-        service='instapaper',
-        keys=['oauth_key', 'oauth_secret', 'username', 'password'])
+def read_config():
+    """Returns configuration for using the script.
 
-    ip = Instapaper(
-        oauthkey=credentials['oauth_key'],
-        oauthsec=credentials['oauth_secret'])
-    ip.login(
-        username=credentials['username'],
-        password=credentials['password'])
+    Configuration is read from one of two places:
+     1. The system keychain
+     2. Command-line arguments
+
+    Command-line arguments take precedence over keychain values.  If the
+    keychain values are empty/missing, the command-line switches are required.
+
+    """
+    # Read some initial config from the system keychain: if this doesn't
+    # exist, then we require it from command-line arguments.
+    username = keyring.get_password('instapaper', 'username')
+    password = keyring.get_password('instapaper', 'password')
+    oauthkey = keyring.get_password('instapaper', 'oauthkey')
+    oauthsec = keyring.get_password('instapaper', 'oauthsec')
+
+    parser = argparse.ArgumentParser(
+        description='A script to back up bookmarks from Instapaper',
+        epilog='This script requires API keys for Instapaper. You can get an '
+               'API key from '
+               'https://www.instapaper.com/main/request_oauth_consumer_token')
+
+    parser.add_argument(
+        '--output', default='instapaper_bookmarks.json',
+        help='output path for the backup file')
+    parser.add_argument(
+        '--username', required=(username is None),
+        help='Instapaper username')
+    parser.add_argument(
+        '--password', required=(password is None),
+        help='Instapaper password')
+    parser.add_argument(
+        '--oauthkey', required=(oauthkey is None),
+        help='OAuth key for the Instapaper API')
+    parser.add_argument(
+        '--oauthsec', required=(oauthsec is None),
+        help='OAuth secret for the Instapaper API')
+
+    config = vars(parser.parse_args())
+
+    if config['username'] is None:
+        config['username'] = username
+    if config['password'] is None:
+        config['password'] = password
+    if config['oauthkey'] is None:
+        config['oauthkey'] = oauthkey
+    if config['oauthsec'] is None:
+        config['oauthsec'] = oauthsec
+
+    return config
+
+
+def setup_api(username, password, oauthkey, oauthsec):
+    """Set up an instance of the Instapaper API.
+
+    :param username: Instapaper username
+    :param password: Instapaper password
+    :param oauthkey: OAuth key for the Instapaper API
+    :param oauthsec: OAuth secret for the Instapaper API
+
+    """
+    api = Instapaper(oauthkey=oauthkey, oauthsec=oauthsec)
+    api.login(username=username, password=password)
+    return api
+
+
+def main():
+    """Use the Instapaper API to save bookmarks to disk."""
+    config = read_config()
+    api = setup_api(
+        username=config['username'],
+        password=config['password'],
+        oauthkey=config['oauthkey'],
+        oauthsec=config['oauthsec'])
 
     data = {}
 
-    folders = ip.folders()
+    folders = api.folders()
     data['folders'] = folders
 
     data['bookmarks'] = {}
     for folder_id in ('unread', 'archive'):
         data['bookmarks'][folder_id] = fetch_all_bookmarks(
-            api=ip, folder_id=None)
+            api=api, folder_id=None)
 
     for folder in folders:
-        bookmarks = fetch_all_bookmarks(api=ip, folder_id=folder['folder_id'])
+        bookmarks = fetch_all_bookmarks(api=api, folder_id=folder['folder_id'])
         data['bookmarks'][folder['title']] = bookmarks
 
     json.dump(data, open(path, 'w'), indent=2, sort_keys=True)
+
+
+if __name__ == '__main__':
+    main()

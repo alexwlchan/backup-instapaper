@@ -1,0 +1,2 @@
+-e git://github.com/rsgalloway/instapaper.git@905edbb#egg=instapaper
+keyring>=10.2,<11
